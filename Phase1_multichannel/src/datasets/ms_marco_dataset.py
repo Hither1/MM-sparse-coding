@@ -57,8 +57,6 @@ class MsMarcoDataset(Dataset):
             split = "validation"
 
         # elif split == "test":
-
-        img_key = "filepath"
         caption_key = "title"
 
         self.dataset = load_dataset("ms_marco", "v2.1", split=split)
@@ -122,8 +120,7 @@ class MsMarcoDataset(Dataset):
                 ret.update(self.get_passages(idx))
                 result = True
             except Exception as e:
-                print(f"Error while read file idx {idx} in {self.images[idx]} -> {e}")
-                print(str(self.captions[idx]).lower())
+                print(f"Error while read file idx {idx} in -> {e}")
                 idx = random.randint(0, len(self.images) - 1)
 
         return ret

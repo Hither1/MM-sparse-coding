@@ -1,0 +1,10 @@
+data
+*/ckpt
+*/experiments/
+*/logs
+*/vis
+*/lightning_logs
+*/results/
+wandb
+*/error.txt
+*/output.txt
