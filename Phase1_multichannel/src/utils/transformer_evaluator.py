@@ -219,6 +219,7 @@ class SparseRetrieval(Evaluator):
                                                                   
                 # threshold set to 0 by default, could be better
                 filtered_indexes, scores = self.select_topk(filtered_indexes, scores, k=top_k)
+
                 for id_, sc in zip(filtered_indexes, scores):
                     res[str(q_id)][str(self.doc_ids[id_])] = float(sc)
 
@@ -247,7 +248,6 @@ class SparseRetrieval(Evaluator):
 
 
 class RerankEvaluator(Evaluator):
-
     def __init__(self, model, config, dataset_name=None, **kwargs):
         super().__init__(model, config, **kwargs)
         self.init_(config=config,dataset_name=dataset_name)

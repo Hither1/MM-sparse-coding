@@ -5,6 +5,7 @@
 #     resume_from='./ckpt/phase1_mc_l1_collector/Text_only_MAE_Contrastive_seed0_from_/version_0/checkpoints/epoch=20-step=73919.ckpt'
     # load_path="../ckpt/phase1/Text_only_MAE_Contrastive_seed0_from_/version_0/checkpoints/epoch=19-step=65959.ckpt"
 
+# I chose this batch size for running on A100, please choose smth smaller if your GPU does not allow this batch size
 CUDA_VISIBLE_DEVICES=0 python run.py with data_root="../data" \
    num_gpus=1 num_nodes=1 task_Text_MAE_Contrastive_train per_gpu_batchsize=180 \
    beit16_base224 text_bert image_size=224 vit_randaug batch_size=800 \

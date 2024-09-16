@@ -321,10 +321,6 @@ class ITRTransformerSS(pl.LightningModule):
 
         query_mlm_logits, query_bottleneck_repre = self.encode_text(query_ids, query_masks, query_ids_con)
         passages_mlm_logits, passages_bottleneck_repre = self.encode_text(passages_ids, passages_masks, passages_ids_con)
-        # image_bottleneck_repre = self.encode_image(
-        #     image_features, image_masks=None,
-        #     word_embeddings_matrix=self.text_transformer.bert.get_input_embeddings().weight.data.detach(),
-        # )
         
         ret = {
             "self_t_logits": query_mlm_logits,
@@ -334,7 +330,7 @@ class ITRTransformerSS(pl.LightningModule):
             "encoder_text_query_labels_mlm": query_labels,
             "encoder_text_passages_labels_mlm": passages_labels,
             # "image_features": image_features,
-            "data_dir": batch['img_dirs'],
+            # "data_dir": batch['img_dirs'],
         }
 
         return ret

@@ -24,7 +24,11 @@ class CollectionDatasetPreLoad(Dataset):
         self.line_dict = {}
         print("Preloading dataset")
         with open(os.path.join(self.data_dir, "raw.tsv")) as reader:
+            max_rows = 20000
             for i, line in enumerate(tqdm(reader)):
+                if i >= max_rows:
+                    break
+
                 if len(line) > 1:
                     id_, *data = line.split("\t")  # first column is id
                     data = " ".join(" ".join(data).splitlines())
@@ -56,7 +60,6 @@ class MsMarcoDataset(Dataset):
         if split == "val":
             split = "validation"
 
-        # elif split == "test":
         caption_key = "title"
 
         self.dataset = load_dataset("ms_marco", "v2.1", split=split)
@@ -92,22 +95,26 @@ class MsMarcoDataset(Dataset):
     
     
     def get_passages(self, idx):
-        passages = [str(passage).lower() for passage in self.dataset[idx]["passages"]]
-        concatenated_passages = " ".join(passages)
+        selected = self.dataset[idx]["passages"]['is_selected']
+        passages = self.dataset[idx]["passages"]['passage_text']
+ 
+        if 1 in selected:
+            selected_passage = passages[selected.index(1)]
+        else: 
+            selected_passage = ''
 
         # Tokenize the concatenated passages
         passage_encoding = self.tokenizer(
-            concatenated_passages,
+            selected_passage,
             padding="max_length",
             truncation=True,
             max_length=self.max_text_len,
             return_special_tokens_mask=True,
         )
         return {
-            "text_passages": (concatenated_passages, passage_encoding),
+            "text_passages": (selected_passage, passage_encoding),
             "raw_index": idx,
-            "img_index": idx,
-            "img_dirs": "",
+            "query_index": idx,
         }
     
 
@@ -121,7 +128,7 @@ class MsMarcoDataset(Dataset):
                 result = True
             except Exception as e:
                 print(f"Error while read file idx {idx} in -> {e}")
-                idx = random.randint(0, len(self.images) - 1)
+                # idx = random.randint(0, len(self.images) - 1)
 
         return ret
     
@@ -131,8 +138,7 @@ class MsMarcoDataset(Dataset):
         keys = set([key for b in batch for key in b.keys()])
         dict_batch = {k: [dic[k] if k in dic else None for dic in batch] for k in keys}
 
-        txt_keys = [k for k in list(dict_batch.keys()) if "text" in k]
-
+        txt_keys = [k for k in list(dict_batch.keys()) if "text_query" in k]
         if len(txt_keys) != 0:
             texts = [[d[0] for d in dict_batch[txt_key]] for txt_key in txt_keys]
             encodings = [[d[1] for d in dict_batch[txt_key]] for txt_key in txt_keys]
@@ -147,12 +153,10 @@ class MsMarcoDataset(Dataset):
                     [d[0] for d in dict_batch[txt_key]],
                     [d[1] for d in dict_batch[txt_key]],
                 )
-
                 mlm_ids, mlm_labels = (
                     flatten_mlms["input_ids"][batch_size * (i) : batch_size * (i + 1)],
                     flatten_mlms["labels"][batch_size * (i) : batch_size * (i + 1)],
                 )
-
                 input_ids = torch.zeros_like(mlm_ids)
                 attention_mask = torch.zeros_like(mlm_ids)
                 for _i, encoding in enumerate(encodings):
@@ -177,7 +181,52 @@ class MsMarcoDataset(Dataset):
                     flatten_mlms["input_ids"][batch_size * (i) : batch_size * (i + 1)],
                     flatten_mlms["labels"][batch_size * (i) : batch_size * (i + 1)],
                 )
+                dict_batch[f"decoder_{txt_key}_ids_mlm"] = mlm_ids
+                dict_batch[f"decoder_{txt_key}_labels_mlm"] = mlm_labels
 
+        txt_keys = [k for k in list(dict_batch.keys()) if "text_passages" in k]
+        if len(txt_keys) != 0:
+            texts = [[d[0] for d in dict_batch[txt_key]] for txt_key in txt_keys]
+            encodings = [[d[1] for d in dict_batch[txt_key]] for txt_key in txt_keys]
+            flatten_encodings = [e for encoding in encodings for e in encoding]
+
+            # Prepare for text encoder
+            mlm_collator.mlm_probability = 0.3
+            flatten_mlms = mlm_collator(flatten_encodings)
+
+            for i, txt_key in enumerate(txt_keys):
+                texts, encodings = (
+                    [d[0] for d in dict_batch[txt_key]],
+                    [d[1] for d in dict_batch[txt_key]],
+                )
+                mlm_ids, mlm_labels = (
+                    flatten_mlms["input_ids"][batch_size * (i) : batch_size * (i + 1)],
+                    flatten_mlms["labels"][batch_size * (i) : batch_size * (i + 1)],
+                )
+                input_ids = torch.zeros_like(mlm_ids)
+                attention_mask = torch.zeros_like(mlm_ids)
+                for _i, encoding in enumerate(encodings):
+                    _input_ids, _attention_mask = (
+                        torch.tensor(encoding["input_ids"]),
+                        torch.tensor(encoding["attention_mask"]),
+                    )
+                    input_ids[_i, : len(_input_ids)] = _input_ids
+                    attention_mask[_i, : len(_attention_mask)] = _attention_mask
+
+                dict_batch[txt_key] = texts
+                dict_batch[f"{txt_key}_ids"] = input_ids
+                dict_batch[f"{txt_key}_masks"] = attention_mask
+                dict_batch[f"encoder_{txt_key}_ids_mlm"] = mlm_ids
+                dict_batch[f"encoder_{txt_key}_labels_mlm"] = mlm_labels
+            
+            # Prepare for text decoder
+            mlm_collator.mlm_probability = 0.5
+            flatten_mlms = mlm_collator(flatten_encodings)
+            for i, txt_key in enumerate(txt_keys):
+                mlm_ids, mlm_labels = (
+                    flatten_mlms["input_ids"][batch_size * (i) : batch_size * (i + 1)],
+                    flatten_mlms["labels"][batch_size * (i) : batch_size * (i + 1)],
+                )
                 dict_batch[f"decoder_{txt_key}_ids_mlm"] = mlm_ids
                 dict_batch[f"decoder_{txt_key}_labels_mlm"] = mlm_labels
 

@@ -118,16 +118,15 @@ def compute_contrastive(pl_module, ret):
     beta = 0.1
     w_sparsity = 0.0001
     l1_loss_v = w_sparsity * L1_loss_v(text_reps, pl_module.channel, pl_module.v_size, pl_module.collector_id) + w_sparsity * L1_loss_v(image_reps, pl_module.channel, pl_module.v_size, pl_module.collector_id)
-    #l2_loss = 100*(L2_loss_collector(text_reps_collector, pl_module.channel, pl_module.v_size, pl_module.collector_id) + L2_loss_collector(image_reps_collector, pl_module.channel, pl_module.v_size, pl_module.collector_id))
-    all_text_reps = pl_module.gather(text_reps)
-    all_image_reps = pl_module.gather(image_reps)
+    # l2_loss = 100*(L2_loss_collector(text_reps_collector, pl_module.channel, pl_module.v_size, pl_module.collector_id) + L2_loss_collector(image_reps_collector, pl_module.channel, pl_module.v_size, pl_module.collector_id))
+    all_text_reps_1 = pl_module.gather(text_reps)
+    all_text_reps_2 = pl_module.gather(image_reps)
 
     # in-batch contrastive
     # Cross Entropy
-    logits_per_text = torch.einsum("nc,ck->nk", [all_text_reps, all_image_reps.transpose(-2, -1)]) / pl_module.T
+    logits_per_text = torch.einsum("nc,ck->nk", [all_text_reps_1, all_text_reps_2.transpose(-2, -1)]) / pl_module.T
     contrastive_loss = clip_loss(logits_per_text)
     sparse_txt = sparsity(text_reps)
-
     sparse_img = sparsity(image_reps)
 
     new_ret = {
