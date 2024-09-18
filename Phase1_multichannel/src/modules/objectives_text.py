@@ -165,9 +165,7 @@ def compute_irtr_recall(pl_module):
         ),
     )
 
-    image_dset = pl_module.trainer.datamodule.dms[0].make_val_dset(
-        image_only=True
-    )
+    image_dset = pl_module.trainer.datamodule.dms[0].make_val_dset()
     image_dset.tokenizer = pl_module.trainer.datamodule.dms[0].tokenizer
     dist_sampler = DistributedSampler(image_dset, shuffle=False)
     image_loader = torch.utils.data.DataLoader(
@@ -184,11 +182,12 @@ def compute_irtr_recall(pl_module):
 
     text_preload = list()
     for _b in tqdm.tqdm(text_loader, desc="text prefetch loop"):
-        text_ids = _b["text_ids"].to(pl_module.device)
-        text_masks = _b["text_masks"].to(pl_module.device)
+        print(_b.keys())
+        text_ids = _b["text_query_ids"].to(pl_module.device)
+        text_masks = _b["text_query_masks"].to(pl_module.device)
         text_preload.append(
             {
-                "img_index": _b["img_index"],
+                "passages_index": _b["passages_index"],
                 "text_reps": pl_module.encode_text(
                 text_ids, text_masks)[1]
             }
@@ -196,19 +195,19 @@ def compute_irtr_recall(pl_module):
 
     tiids = list()
     for pre in text_preload:
-        tiids += pre["img_index"]
+        tiids += pre["passages_index"]
     tiids = torch.tensor(tiids)
     
     image_preload = dict()
     image_preload_reps = list()
     for _b in tqdm.tqdm(image_loader, desc="image prefetch loop"):
-        img_index = _b["img_index"][0]
-        if img_index not in image_preload:
-
-            image_features = _b["image_features"].to(pl_module.device)
-            img_reps = pl_module.encode_image(image_features) # [bsz, 768]
-            image_preload[img_index] = 1
-            image_preload_reps.append((img_reps, _b["img_index"]))
+        passages_index = _b["passages_index"][0]
+        if passages_index not in image_preload:
+            passage_ids = _b["text_passages_ids"].to(pl_module.device)
+            passage_masks = _b["text_passages_masks"].to(pl_module.device)
+            passage_reps = pl_module.encode_text(passage_ids, passage_masks)[1] # [bsz, 768]
+            image_preload[passages_index] = 1
+            image_preload_reps.append((passage_reps, _b["passages_index"]))
 
     rank_scores = list()
     rank_iids = list()

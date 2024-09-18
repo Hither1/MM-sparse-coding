@@ -7,7 +7,7 @@ from transformers import (
     get_cosine_schedule_with_warmup,
 )
 from .dist_utils import all_gather
-from .objectives import compute_irtr_recall
+from .objectives_text import compute_irtr_recall
 from ..gadgets.my_metrics import Scalar
 
 

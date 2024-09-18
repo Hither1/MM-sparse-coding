@@ -99,7 +99,7 @@ class MsMarcoDataset(Dataset):
         passages = self.dataset[idx]["passages"]['passage_text']
  
         if 1 in selected:
-            selected_passage = passages[selected.index(1)]
+            selected_passage = passages[selected.index(1)].lower()
         else: 
             selected_passage = ''
 
@@ -128,7 +128,6 @@ class MsMarcoDataset(Dataset):
                 result = True
             except Exception as e:
                 print(f"Error while read file idx {idx} in -> {e}")
-                # idx = random.randint(0, len(self.images) - 1)
 
         return ret
     

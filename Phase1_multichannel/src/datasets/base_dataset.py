@@ -56,7 +56,6 @@ class CsvDataset(torch.utils.data.Dataset):
     def get_image(self, idx):
         file_name = str(self.images[idx]).split("/", 1)[1]
         image_features = self.transforms[0](Image.open(f"{self.data_dir[:8]}/{file_name}")).unsqueeze(0)
-        # image_features = self.transforms[0](Image.open(f"{self.data_dir[:8]}/{str(self.images[idx])[3:]}")).unsqueeze(0)
         num_patches = (self.image_size // self.patch_size) ** 2
 
         return {
