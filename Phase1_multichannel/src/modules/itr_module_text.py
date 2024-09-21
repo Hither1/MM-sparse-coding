@@ -13,7 +13,6 @@ from . import itr_utils
 from . import objectives_text as objectives
 from . import dist_utils
 from .bert_model import BertForMaskedLM
-from .beit_model import BeitForMaskedImageModeling
 from transformers import (
     DataCollatorForLanguageModeling,
     DataCollatorForWholeWordMask,
@@ -74,11 +73,9 @@ class ITRTransformerSS(pl.LightningModule):
 
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == 0:
-                BeitForMaskedImageModeling.from_pretrained(config["vit"])
                 BertForMaskedLM.from_pretrained(config['tokenizer'])
             torch.distributed.barrier()
         
-        self.image_transformer = BeitForMaskedImageModeling.from_pretrained(config["vit"])
         self.text_transformer = BertForMaskedLM.from_pretrained(config['tokenizer'])
 
         self.invalid_token_id = invalid_token_id
@@ -92,11 +89,8 @@ class ITRTransformerSS(pl.LightningModule):
             self.trainer = trainer
         self.alpha = 2
 
-        # self.mlm_head_for_image = copy.deepcopy(self.text_transformer.cls)
-
-        # self.mlm_head_for_image = SparseHead(config, copy.deepcopy(self.text_transformer.cls.predictions.transform))
         self.mlm_head_for_text = SparseHead(config, copy.deepcopy(self.text_transformer.cls.predictions.transform))
-        self.mlm_head_for_image = copy.deepcopy(self.mlm_head_for_text)
+
         itr_utils.set_metrics(self)
         self.current_tasks = list()
 
@@ -116,7 +110,7 @@ class ITRTransformerSS(pl.LightningModule):
 
     def alpha_update(self):
         beta = 0.1
-        #epoch = self.trainer.current_epoch # [0, K]
+        # epoch = self.trainer.current_epoch # [0, K]
         step = self.trainer.global_step
         thres = 15000
         if step > thres:
@@ -125,72 +119,6 @@ class ITRTransformerSS(pl.LightningModule):
             alpha = self.alpha / (1+step*beta)
         return alpha
 
-        
-    def encode_image(
-        self,
-        image_features,
-        image_masks=None,
-        word_embeddings_matrix=None,
-    ):
-        sequence_output = self.image_transformer(
-            pixel_values=image_features,
-            bool_masked_pos=image_masks,
-        )
-        mlm_logits = self.mlm_head_for_image(sequence_output)
-        # mlm_logits_dropout = mlm_logits # self.mlm_head_for_image(dropout(sequence_output)
-        
-        if self.training_mode == "bottle":
-            # for bottleneck pretraining
-            pooled_enc_logits = torch.max(mlm_logits, dim=1)[0] # [bsz, vocab_size]
-            pooled_enc_probs = torch.softmax(pooled_enc_logits, dim=-1) # [bsz, vocab_size]
-            bottleneck_repre = torch.matmul(pooled_enc_probs, word_embeddings_matrix) # [bsz, 768]
-        elif self.training_mode == "both":
-            # sum along multi-channel for lexicon loss
-            vocab_size = mlm_logits.shape[-1] // self.channel
-            bs, seq_len = mlm_logits.shape[:2]
-            mlm_logits_ = F.relu(mlm_logits)
-            mlm_logits_sum = torch.sum(mlm_logits_.view(bs, seq_len, vocab_size, self.channel), dim=-1)
-
-            pooled_enc_logits = torch.max(mlm_logits_sum, dim=1)[0] # [bsz, vocab_size]
-            #pooled_enc_logits[:, self.invalid_token_id] = 0
-
-            pooled_enc_probs = torch.softmax(torch.log(1 + pooled_enc_logits), dim=-1) # [bsz, vocab_size]
-            bottleneck_repre_for_MAE = torch.matmul(pooled_enc_probs, word_embeddings_matrix) # [bsz, 768]
-            # mlm_logits = torch.max(mlm_logits, torch.zeros_like(mlm_logits))
-
-            # Use dropout version for bottleneck_repre_for_MAE
-            alpha = self.alpha_update()
-            pooled_enc_logits = torch.max(mlm_logits, dim=1)[0] # [bsz, vocab_size]
-            bottleneck_repre_for_collector = pooled_enc_logits
-            pooled_enc_logits = F.elu(pooled_enc_logits, alpha)
-            pooled_enc_probs = torch.log(1 + alpha + pooled_enc_logits)
-            bottleneck_repre_for_Con = pooled_enc_probs
-            bottleneck_repre_for_Con = bottleneck_repre_for_Con.reshape(bs, vocab_size, self.channel)
-            bottleneck_repre_for_Con[:, self.invalid_token_id, :] = 0
-            bottleneck_repre_for_Con = bottleneck_repre_for_Con.reshape(bs, vocab_size*self.channel)
-
-            bottleneck_repre = [bottleneck_repre_for_MAE, bottleneck_repre_for_Con, bottleneck_repre_for_collector]
-        else:
-            # sum along multi-channel for lexicon loss
-            vocab_size = mlm_logits.shape[-1] // self.channel
-            bs, seq_len = mlm_logits.shape[:2]
-            # mlm_logits_sum = torch.sum(mlm_logits.view(bs, seq_len, vocab_size, self.channel), dim=-1)
-            # mlm_logits_sum = torch.max(mlm_logits_sum, torch.zeros_like(mlm_logits_sum))  # relu
-            # mlm_logits_sum = torch.max(mlm_logits_sum, dim=1)[0]  # [bsz, vocab_size]
-            # mlm_logits_sum = torch.log(1 + mlm_logits_sum)
-
-            # for contrastive pretraining
-            mlm_logits = torch.max(mlm_logits, torch.zeros_like(mlm_logits)) #relu
-            pooled_enc_logits = torch.max(mlm_logits, dim=1)[0] # [bsz, vocab_size]
-            pooled_enc_probs = torch.log(1 + pooled_enc_logits)
-            # bottleneck_repre = pooled_enc_probs
-            bottleneck_repre = pooled_enc_probs.reshape(bs, vocab_size, self.channel)
-            #img_collector_id = [2094, 2305, 2029, 2252, 3628, 4181]
-            bottleneck_repre[:, self.invalid_token_id, :] = 0
-            #bottleneck_repre = torch.sum(bottleneck_repre, dim=-1)
-            bottleneck_repre = bottleneck_repre.reshape(bs, vocab_size * self.channel)
-
-        return bottleneck_repre
     
     def encode_text(
         self,
@@ -313,7 +241,7 @@ class ITRTransformerSS(pl.LightningModule):
         query_ids_con = batch["text_query_ids"]
         query_labels = batch[f"encoder_text_query_labels_mlm"]
         query_masks = batch[f"text_query_masks"]
-        # image_features = batch[f"image_features"]
+        # image_features = batch[f""]
         passages_ids = batch[f"encoder_text_passages_ids_mlm"] if self.training_mode in ["bottle", "both"] else batch["text_ids"]
         passages_ids_con = batch["text_passages_ids"]
         passages_labels = batch[f"encoder_text_passages_labels_mlm"]
